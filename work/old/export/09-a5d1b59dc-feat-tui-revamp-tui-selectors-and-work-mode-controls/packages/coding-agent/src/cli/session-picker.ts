@@ -1,0 +1,59 @@
+/**
+ * TUI session selector for --resume flag
+ */
+
+import { Box, setKeybindings } from "@earendil-works/pi-tui";
+import { KeybindingsManager } from "../core/keybindings.ts";
+import type { SessionInfo, SessionListProgress } from "../core/session-manager.ts";
+import type { SettingsManager } from "../core/settings-manager.ts";
+import { SessionSelectorComponent } from "../modes/interactive/components/session-selector.ts";
+import { theme } from "../modes/interactive/theme/theme.ts";
+import { createStartupTui, startStartupTui } from "./startup-ui.ts";
+
+type SessionsLoader = (onProgress?: SessionListProgress) => Promise<SessionInfo[]>;
+
+/** Show TUI session selector and return selected session path or null if cancelled */
+export async function selectSession(
+	currentSessionsLoader: SessionsLoader,
+	allSessionsLoader: SessionsLoader,
+	settingsManager: SettingsManager,
+): Promise<string | null> {
+	const ui = await createStartupTui(settingsManager);
+	return new Promise((resolve) => {
+		const keybindings = KeybindingsManager.create();
+		setKeybindings(keybindings);
+		let resolved = false;
+
+		const selector = new SessionSelectorComponent(
+			currentSessionsLoader,
+			allSessionsLoader,
+			(path: string) => {
+				if (!resolved) {
+					resolved = true;
+					ui.stop();
+					resolve(path);
+				}
+			},
+			() => {
+				if (!resolved) {
+					resolved = true;
+					ui.stop();
+					resolve(null);
+				}
+			},
+			() => {
+				ui.stop();
+				process.exit(0);
+			},
+			() => ui.requestRender(),
+			{ showRenameHint: false, keybindings },
+		);
+
+		// Same gray surface the interactive `/resume` menu gets from `showSelector({ boxed: true })`.
+		const box = new Box(2, 1, (text) => theme.bg("inputBg", text));
+		box.addChild(selector);
+		ui.addChild(box);
+		ui.setFocus(selector.getSessionList());
+		startStartupTui(ui, settingsManager);
+	});
+}
